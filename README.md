@@ -1,5 +1,7 @@
 # Throne Chess
 
+**▶ Play online: https://marvinfacio.github.io/throne-chess/**
+
 Browser games, each in one self-contained HTML file. To play, open the file in a browser. There's nothing to install or build.
 
 ## Games
