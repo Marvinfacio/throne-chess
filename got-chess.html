@@ -1,0 +1,1419 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Throne Chess</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap">
+<style>
+  /* Layout: board column (player bars above/below the board) + side panel of cards; panel stacks under the board on narrow screens */
+  :root {
+    /* Theme tokens — overwritten by JS from THEMES */
+    --light: #dccfee; --dark: #6c4f9c;
+    --p1: #8f52e6; --p1i: #1b0b30;
+    --p2: #15111b; --p2i: #d7c2ff;
+    --acc: #b384ff; --bg: #120c1a;
+    /* Fixed UI tokens: the game is intentionally a dark, candle-lit hall in every theme */
+    --text: #ece6da; --muted: #a99f8f;
+    --card: rgba(255,255,255,.045); --line: rgba(255,255,255,.12);
+    --frame: #241c14;
+    --font-title: "Cinzel", "Trajan Pro", Georgia, serif;
+    --font-body: "EB Garamond", Garamond, Georgia, serif;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    background:
+      radial-gradient(1100px 520px at 50% -12%, color-mix(in srgb, var(--acc) 24%, transparent), transparent 70%),
+      var(--bg);
+    background-color: var(--bg);
+    color: var(--text);
+    font: 17px/1.45 var(--font-body);
+    padding: 0 16px;
+    transition: background-color .4s;
+  }
+  button { font: inherit; color: inherit; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 22px 0 48px; }
+
+  header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 14px 24px; margin-bottom: 20px; }
+  h1 {
+    font: 900 clamp(1.9rem, 4.6vw, 3rem)/1 var(--font-title);
+    letter-spacing: .08em; margin: 0;
+    background: linear-gradient(180deg, #fff3d6, var(--acc));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .tag { margin: 6px 0 0; color: var(--muted); font-style: italic; }
+  .sound { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .sound input[type=range] { width: 110px; accent-color: var(--acc); }
+
+  .btn {
+    font: 600 .8rem/1 var(--font-title); letter-spacing: .06em; text-transform: uppercase;
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 14px; cursor: pointer; transition: background .15s, border-color .15s, transform .1s;
+  }
+  .btn:hover { border-color: var(--acc); }
+  .btn:active { transform: translateY(1px); }
+  .btn.primary { background: var(--acc); color: #111; border-color: transparent; }
+  .btn[aria-pressed="false"] { opacity: .6; }
+  .btn.pulse { animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--acc) 45%, transparent); } }
+
+  .game { display: grid; grid-template-columns: minmax(0, 1fr) 350px; gap: 24px; align-items: start; }
+  @media (max-width: 920px) { .game { grid-template-columns: minmax(0, 1fr); } }
+
+  .board-col { display: flex; flex-direction: column; align-items: center; gap: 10px; min-width: 0; }
+  .board-wrap { position: relative; width: min(100%, 76vh, 680px); min-width: 260px; }
+  .board {
+    width: 100%; aspect-ratio: 1; display: grid;
+    grid-template: repeat(8, 1fr) / repeat(8, 1fr);
+    border: 12px solid var(--frame); border-radius: 8px;
+    box-shadow: 0 0 0 2px var(--acc), 0 24px 60px rgba(0,0,0,.6);
+    touch-action: none; user-select: none; -webkit-user-select: none;
+    overflow: hidden;
+  }
+  .sq { position: relative; display: grid; place-items: center; cursor: default; }
+  .sq.l { background: var(--light); }
+  .sq.d { background: var(--dark); }
+  .sq.last::before { content: ""; position: absolute; inset: 0; background: rgba(255, 214, 90, .38); }
+  .sq.sel::before { content: ""; position: absolute; inset: 0; background: color-mix(in srgb, var(--acc) 55%, transparent); }
+  .sq.chk::before { content: ""; position: absolute; inset: 0; background: radial-gradient(circle, rgba(255,40,40,.95) 0%, rgba(255,40,40,.5) 45%, transparent 75%); }
+  .sq.tgt { cursor: pointer; }
+  .sq.tgt::after { content: ""; position: absolute; width: 28%; height: 28%; border-radius: 50%; background: rgba(0,0,0,.32); pointer-events: none; z-index: 2; }
+  .sq.tgt.cap::after { width: 88%; height: 88%; background: transparent; border: 5px solid rgba(0,0,0,.35); }
+  .sq.mine { cursor: grab; }
+  .sq.dragging .pc, .sq.dragging .hint { opacity: .25; }
+  .coord { position: absolute; font: 700 clamp(8px, 1.4vw, 12px)/1 var(--font-title); pointer-events: none; z-index: 1; }
+  .coord.rk { top: 3px; left: 4px; }
+  .coord.fl { bottom: 3px; right: 4px; }
+  .sq.l .coord { color: var(--dark); }
+  .sq.d .coord { color: var(--light); }
+
+  .pc-box { position: relative; width: 92%; height: 92%; z-index: 1; pointer-events: none; }
+  .pc { width: 100%; height: 100%; display: block; overflow: visible; filter: drop-shadow(0 2px 1.6px rgba(0,0,0,.6)); }
+  .side-w { --fill: var(--p1); --ink: var(--p1i); }
+  .side-b { --fill: var(--p2); --ink: var(--p2i); }
+  .pc .o { stroke: var(--ink); stroke-width: 2.6; stroke-linejoin: round; stroke-linecap: round; }
+  .pc .f { fill: var(--fill); }
+  .pc .i { fill: var(--ink); }
+  .pc .s { fill: #efcfa9; }
+  .pc .g { fill: #e2b33c; }
+  .pc .m { fill: #cfd5de; }
+  .pc .x { fill: #6a6f78; }
+  .pc .h1 { fill: #2a1c15; }
+  .pc .h2 { fill: #f3eee3; }
+  .pc .h3 { fill: #ddb555; }
+  .pc .wd { fill: #7b5330; }
+  .pc .br { fill: #b5793a; }
+  .pc .bn { fill: #ead9b4; }
+  .pc .gl { fill: #ffcc33; }
+  .pc .fl { fill: #ff6d1f; }
+  .pc .wine { fill: #7c1023; }
+  .pc .sd { fill: #1d1714; }
+  .pc .sh { fill: #fff; opacity: .45; }
+  .pc .o .ns { stroke: none; }
+  .pc .o .e { fill: #1a1310; stroke: none; }
+  .pc .o .ln { fill: none; stroke-width: 1.6; }
+  .pc .o .sc { fill: none; stroke: #9b2d2d; stroke-width: 1.8; }
+  .pc .o .ch { fill: none; stroke: #cfd5de; stroke-width: 2.2; }
+  .hint {
+    position: absolute; right: 2%; top: 1%; z-index: 2; pointer-events: none;
+    font: 700 clamp(9px, 1.7vw, 15px)/1 "Segoe UI Symbol", "DejaVu Sans", sans-serif;
+    font-variant-emoji: text;
+    color: var(--ink); text-shadow: 0 0 2px var(--fill), 0 0 3px var(--fill);
+  }
+  body.no-hints .hint { display: none; }
+  .ghost { position: fixed; left: 0; top: 0; pointer-events: none; z-index: 50; }
+  .ghost .pc { filter: drop-shadow(0 10px 8px rgba(0,0,0,.55)); }
+
+  .pbar {
+    width: min(100%, 76vh, 680px); min-width: 260px;
+    display: flex; align-items: center; gap: 10px; min-height: 40px;
+    padding: 6px 12px; border-radius: 10px; background: var(--card); border: 1px solid var(--line);
+  }
+  .pbar.turn { border-color: var(--acc); box-shadow: 0 0 0 1px var(--acc) inset; }
+  .pbar .dot { width: 16px; height: 16px; border-radius: 50%; flex: none; border: 2px solid; }
+  .pbar .who { font: 700 .9rem/1.1 var(--font-title); letter-spacing: .04em; white-space: nowrap; }
+  .pbar .role { color: var(--muted); font-size: .85rem; white-space: nowrap; }
+  .pbar .caps { display: flex; flex-wrap: wrap; margin-left: auto; align-items: center; min-width: 0; justify-content: flex-end; }
+  .pbar .caps .pc { width: 22px; height: 22px; margin-left: -5px; }
+  .pbar .adv { color: var(--muted); font-size: .85rem; margin-left: 6px; }
+  .thinking { color: var(--acc); font-style: italic; font-size: .85rem; animation: blink 1.2s ease-in-out infinite; }
+  @keyframes blink { 50% { opacity: .35; } }
+
+  .overlay {
+    position: absolute; inset: 12px; z-index: 20; display: grid; place-items: center;
+    background: rgba(8, 6, 4, .62); backdrop-filter: blur(2px); border-radius: 2px;
+  }
+  .overlay[hidden] { display: none; }
+  .dialog {
+    width: min(92%, 380px); text-align: center; padding: 22px 20px;
+    background: #1b1510; border: 1px solid var(--acc); border-radius: 12px; box-shadow: 0 20px 50px rgba(0,0,0,.6);
+  }
+  .dialog h3 { font: 700 1.35rem/1.2 var(--font-title); margin: 0 0 6px; color: var(--acc); }
+  .dialog p { margin: 0 0 16px; color: var(--muted); }
+  .dialog .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  .promo-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 4px; }
+  .promo-grid button {
+    background: var(--light); border: 2px solid transparent; border-radius: 10px; padding: 6px 4px 4px; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+  }
+  .promo-grid button:hover { border-color: var(--acc); }
+  .promo-grid .pc-box { width: 60px; height: 60px; }
+  .promo-grid span { font-size: .72rem; color: #222; line-height: 1.1; }
+
+  .panel { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .card h2 { font: 700 .95rem/1 var(--font-title); letter-spacing: .1em; text-transform: uppercase; margin: 0 0 12px; color: var(--acc); }
+  details.card > summary { cursor: pointer; list-style: none; }
+  details.card > summary::-webkit-details-marker { display: none; }
+  details.card > summary h2 { display: inline; }
+  details.card > summary::after { content: " ▸"; color: var(--muted); }
+  details[open].card > summary::after { content: " ▾"; }
+  .status { font: 600 1.15rem/1.3 var(--font-title); margin: 0 0 12px; }
+  .status small { display: block; font: italic 400 .95rem/1.3 var(--font-body); color: var(--muted); margin-top: 4px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+  .field { margin-bottom: 12px; }
+  .lbl { display: block; font-size: .8rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+  .seg { display: flex; gap: 6px; flex-wrap: wrap; }
+  .seg button, .levels button {
+    flex: 1 1 auto; background: transparent; border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 10px; cursor: pointer; font-size: .95rem; text-align: center;
+  }
+  .seg button[aria-pressed="true"], .levels button[aria-pressed="true"] { background: color-mix(in srgb, var(--acc) 26%, transparent); border-color: var(--acc); }
+  .levels { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .levels button { text-align: left; }
+  .levels b { display: block; font: 600 .82rem/1.2 var(--font-title); }
+  .levels small { color: var(--muted); font-size: .8rem; }
+  .card.pvp .ai-only { display: none; }
+  .note { margin: 0 0 12px; font-style: italic; color: var(--acc); font-size: .92rem; }
+  .note[hidden] { display: none; }
+  .themes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .themes button {
+    display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px;
+    background: transparent; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; font-size: .78rem; line-height: 1.15;
+  }
+  .themes button[aria-pressed="true"] { border-color: var(--acc); background: color-mix(in srgb, var(--acc) 18%, transparent); }
+  .sw { display: flex; }
+  .sw i { width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(255,255,255,.25); }
+  .sw i + i { margin-left: -5px; }
+  .chk { display: flex; gap: 8px; align-items: center; font-size: .95rem; cursor: pointer; }
+  .chk input { accent-color: var(--acc); width: 16px; height: 16px; }
+
+  .moves { margin: 0; padding: 0; list-style: none; max-height: 210px; overflow-y: auto; font-variant-numeric: tabular-nums; }
+  .moves li { display: grid; grid-template-columns: 36px 1fr 1fr; padding: 2px 4px; border-radius: 4px; }
+  .moves li:nth-child(odd) { background: rgba(255,255,255,.03); }
+  .moves .mn { color: var(--muted); }
+  .empty { color: var(--muted); font-style: italic; margin: 0; }
+
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+  .tile { background: rgba(255,255,255,.04); border-radius: 8px; padding: 8px; text-align: center; }
+  .tile b { display: block; font: 700 1.25rem/1.1 var(--font-title); color: var(--text); font-variant-numeric: tabular-nums; }
+  .tile span { font-size: .75rem; color: var(--muted); line-height: 1.1; display: block; margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: .92rem; margin-bottom: 12px; font-variant-numeric: tabular-nums; }
+  th, td { padding: 4px 6px; text-align: right; border-bottom: 1px solid var(--line); }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 400; font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; }
+  .recent { margin: 0 0 12px; padding: 0; list-style: none; font-size: .9rem; }
+  .recent li { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; border-bottom: 1px dashed var(--line); }
+  .recent .r-w { color: #7fd48a; } .recent .r-l { color: #ff8b80; } .recent .r-d { color: var(--muted); }
+  .sub { font: 700 .75rem/1 var(--font-title); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 4px 0 6px; }
+
+  .roster { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; margin-top: 12px; }
+  .roster h4 { grid-column: span 1; margin: 0 0 2px; font: 700 .8rem/1 var(--font-title); letter-spacing: .06em; color: var(--muted); }
+  .rost { display: flex; align-items: center; gap: 8px; font-size: .9rem; line-height: 1.15; }
+  .rost .pc-box { width: 42px; height: 42px; flex: none; background: var(--light); border-radius: 8px; }
+  .rost small { color: var(--muted); display: block; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Throne Chess</h1>
+      <p class="tag">House Targaryen against House Lannister. A Game of Thrones–inspired chess game.</p>
+    </div>
+    <div class="sound">
+      <button class="btn" id="musicBtn" aria-pressed="true">♪ Music on</button>
+      <label class="chk" title="Volume">Vol <input type="range" id="vol" min="0" max="100" value="50"></label>
+      <button class="btn" id="sfxBtn" aria-pressed="true">Sound effects on</button>
+    </div>
+  </header>
+
+  <div class="game">
+    <section class="board-col">
+      <div class="pbar" id="barTop"></div>
+      <div class="board-wrap">
+        <div class="board" id="board" aria-label="Chess board"></div>
+        <div class="overlay" id="promo" hidden>
+          <div class="dialog">
+            <h3>Choose a promotion</h3>
+            <p>Who rises from the ranks?</p>
+            <div class="promo-grid" id="promoGrid"></div>
+          </div>
+        </div>
+        <div class="overlay" id="result" hidden>
+          <div class="dialog">
+            <h3 id="resTitle"></h3>
+            <p id="resText"></p>
+            <div class="row">
+              <button class="btn primary" id="resNew">New game</button>
+              <button class="btn" id="resClose">View board</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="pbar" id="barBot"></div>
+    </section>
+
+    <aside class="panel">
+      <div class="card">
+        <p class="status" id="status"></p>
+        <div class="actions">
+          <button class="btn primary" id="newBtn">New game</button>
+          <button class="btn" id="undoBtn">Undo</button>
+          <button class="btn" id="flipBtn">Flip board</button>
+          <button class="btn" id="resignBtn">Resign</button>
+        </div>
+      </div>
+
+      <div class="card" id="settings">
+        <h2>War Council</h2>
+        <div class="field">
+          <span class="lbl">Mode</span>
+          <div class="seg" id="segMode">
+            <button data-v="pvp">Person vs Person</button>
+            <button data-v="pvc">Person vs Computer</button>
+          </div>
+        </div>
+        <div class="field ai-only">
+          <span class="lbl">Play as</span>
+          <div class="seg" id="segSide">
+            <button data-v="w">House Targaryen</button>
+            <button data-v="b">House Lannister</button>
+          </div>
+        </div>
+        <div class="field ai-only">
+          <span class="lbl">Difficulty</span>
+          <div class="levels" id="segLevel"></div>
+        </div>
+        <p class="note" id="pendingNote" hidden>Start a new game to apply the new mode or difficulty.</p>
+        <div class="field">
+          <span class="lbl">Colours</span>
+          <div class="themes" id="themes"></div>
+        </div>
+        <label class="chk"><input type="checkbox" id="hints"> Show classic chess symbols on pieces</label>
+      </div>
+
+      <div class="card">
+        <h2>The Chronicle</h2>
+        <ol class="moves" id="moves"></ol>
+      </div>
+
+      <div class="card">
+        <h2>Statistics</h2>
+        <div id="stats"></div>
+        <button class="btn" id="resetStats">Reset statistics</button>
+      </div>
+
+      <details class="card">
+        <summary><h2>The Cast</h2></summary>
+        <div class="roster" id="roster"></div>
+      </details>
+    </aside>
+  </div>
+</div>
+
+<script>
+/*ENGINE-START*/
+function ENGINE() {
+  // Board: 64 squares, index = row*8 + col, row 0 = rank 8. Uppercase = white (Targaryen), lowercase = black (Lannister), '' = empty.
+  const VAL = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 0 };
+  const PST = {
+    p: [0,0,0,0,0,0,0,0, 50,50,50,50,50,50,50,50, 10,10,20,30,30,20,10,10, 5,5,10,25,25,10,5,5, 0,0,0,20,20,0,0,0, 5,-5,-10,0,0,-10,-5,5, 5,10,10,-20,-20,10,10,5, 0,0,0,0,0,0,0,0],
+    n: [-50,-40,-30,-30,-30,-30,-40,-50, -40,-20,0,0,0,0,-20,-40, -30,0,10,15,15,10,0,-30, -30,5,15,20,20,15,5,-30, -30,0,15,20,20,15,0,-30, -30,5,10,15,15,10,5,-30, -40,-20,0,5,5,0,-20,-40, -50,-40,-30,-30,-30,-30,-40,-50],
+    b: [-20,-10,-10,-10,-10,-10,-10,-20, -10,0,0,0,0,0,0,-10, -10,0,5,10,10,5,0,-10, -10,5,5,10,10,5,5,-10, -10,0,10,10,10,10,0,-10, -10,10,10,10,10,10,10,-10, -10,5,0,0,0,0,5,-10, -20,-10,-10,-10,-10,-10,-10,-20],
+    r: [0,0,0,0,0,0,0,0, 5,10,10,10,10,10,10,5, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, 0,0,0,5,5,0,0,0],
+    q: [-20,-10,-10,-5,-5,-10,-10,-20, -10,0,0,0,0,0,0,-10, -10,0,5,5,5,5,0,-10, -5,0,5,5,5,5,0,-5, 0,0,5,5,5,5,0,-5, -10,5,5,5,5,5,0,-10, -10,0,5,0,0,0,0,-10, -20,-10,-10,-5,-5,-10,-10,-20],
+    k: [-30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30, -20,-30,-30,-40,-40,-30,-30,-20, -10,-20,-20,-20,-20,-20,-20,-10, 20,20,0,0,0,0,20,20, 20,30,10,0,0,10,30,20],
+    ke: [-50,-40,-30,-20,-20,-30,-40,-50, -30,-20,-10,0,0,-10,-20,-30, -30,-10,20,30,30,20,-10,-30, -30,-10,30,40,40,30,-10,-30, -30,-10,30,40,40,30,-10,-30, -30,-10,20,30,30,20,-10,-30, -30,-30,0,0,0,0,-30,-30, -50,-30,-30,-30,-30,-30,-30,-50]
+  };
+  const KN = [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
+  const KG = [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
+  const RD = [[-1,0],[1,0],[0,-1],[0,1]];
+  const BD = [[-1,-1],[-1,1],[1,-1],[1,1]];
+  const QD = RD.concat(BD);
+  // Castling rights bits: 1 = white O-O, 2 = white O-O-O, 4 = black O-O, 8 = black O-O-O
+  const CM = new Array(64).fill(15);
+  CM[60] = 12; CM[63] = 14; CM[56] = 13; CM[4] = 3; CM[7] = 11; CM[0] = 7;
+  const MATE = 100000, INF = 1e9;
+  const col = p => p ? (p < 'a' ? 'w' : 'b') : null;
+
+  function newState() { return fromFEN('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'); }
+
+  function fromFEN(fen) {
+    const [pos, turn, cas, ep, half, full] = fen.trim().split(/\s+/);
+    const b = [], kings = { w: -1, b: -1 };
+    for (const ch of pos.replace(/\//g, '')) {
+      if (/\d/.test(ch)) for (let k = 0; k < +ch; k++) b.push('');
+      else { if (ch === 'K') kings.w = b.length; if (ch === 'k') kings.b = b.length; b.push(ch); }
+    }
+    let castle = 0;
+    if (cas.includes('K')) castle |= 1; if (cas.includes('Q')) castle |= 2;
+    if (cas.includes('k')) castle |= 4; if (cas.includes('q')) castle |= 8;
+    const epIdx = ep && ep !== '-' ? (8 - +ep[1]) * 8 + (ep.charCodeAt(0) - 97) : -1;
+    return { b, turn, castle, ep: epIdx, half: +half || 0, full: +full || 1, kings };
+  }
+
+  function clone(s) { return { b: s.b.slice(), turn: s.turn, castle: s.castle, ep: s.ep, half: s.half, full: s.full, kings: { w: s.kings.w, b: s.kings.b } }; }
+
+  function attacked(s, sq, by) {
+    const b = s.b, r = sq >> 3, c = sq & 7, W = by === 'w';
+    const pr = W ? r + 1 : r - 1, pp = W ? 'P' : 'p';
+    if (pr >= 0 && pr < 8) {
+      if (c > 0 && b[pr * 8 + c - 1] === pp) return true;
+      if (c < 7 && b[pr * 8 + c + 1] === pp) return true;
+    }
+    const n = W ? 'N' : 'n', k = W ? 'K' : 'k', rk = W ? 'R' : 'r', q = W ? 'Q' : 'q', bs = W ? 'B' : 'b';
+    for (const [dr, dc] of KN) { const rr = r + dr, cc = c + dc; if (rr >= 0 && rr < 8 && cc >= 0 && cc < 8 && b[rr * 8 + cc] === n) return true; }
+    for (const [dr, dc] of KG) { const rr = r + dr, cc = c + dc; if (rr >= 0 && rr < 8 && cc >= 0 && cc < 8 && b[rr * 8 + cc] === k) return true; }
+    for (const [dr, dc] of RD) {
+      let rr = r + dr, cc = c + dc;
+      while (rr >= 0 && rr < 8 && cc >= 0 && cc < 8) { const p = b[rr * 8 + cc]; if (p) { if (p === rk || p === q) return true; break; } rr += dr; cc += dc; }
+    }
+    for (const [dr, dc] of BD) {
+      let rr = r + dr, cc = c + dc;
+      while (rr >= 0 && rr < 8 && cc >= 0 && cc < 8) { const p = b[rr * 8 + cc]; if (p) { if (p === bs || p === q) return true; break; } rr += dr; cc += dc; }
+    }
+    return false;
+  }
+
+  function gen(s, capsOnly) {
+    const mv = [], b = s.b, us = s.turn, W = us === 'w', them = W ? 'b' : 'w';
+    for (let i = 0; i < 64; i++) {
+      const p = b[i];
+      if (!p || col(p) !== us) continue;
+      const t = p.toLowerCase(), r = i >> 3, c = i & 7;
+      if (t === 'p') {
+        const d = W ? -1 : 1, r1 = r + d, last = W ? 0 : 7, startR = W ? 6 : 1;
+        if (r1 < 0 || r1 > 7) continue;
+        const f = r1 * 8 + c;
+        if (!b[f]) {
+          if (r1 === last) { for (const pr of 'qrbn') mv.push({ from: i, to: f, promo: pr }); }
+          else if (!capsOnly) {
+            mv.push({ from: i, to: f });
+            if (r === startR && !b[f + 8 * d]) mv.push({ from: i, to: f + 8 * d, flag: 'd' });
+          }
+        }
+        for (const dc of [-1, 1]) {
+          const cc = c + dc;
+          if (cc < 0 || cc > 7) continue;
+          const t2 = r1 * 8 + cc, q = b[t2];
+          if (q && col(q) !== us) {
+            if (r1 === last) { for (const pr of 'qrbn') mv.push({ from: i, to: t2, promo: pr }); }
+            else mv.push({ from: i, to: t2 });
+          } else if (t2 === s.ep) mv.push({ from: i, to: t2, flag: 'e' });
+        }
+      } else if (t === 'n' || t === 'k') {
+        for (const [dr, dc] of (t === 'n' ? KN : KG)) {
+          const rr = r + dr, cc = c + dc;
+          if (rr < 0 || rr > 7 || cc < 0 || cc > 7) continue;
+          const t2 = rr * 8 + cc, q = b[t2];
+          if (!q) { if (!capsOnly) mv.push({ from: i, to: t2 }); }
+          else if (col(q) !== us) mv.push({ from: i, to: t2 });
+        }
+        if (t === 'k' && !capsOnly) {
+          if (W && i === 60) {
+            if ((s.castle & 1) && !b[61] && !b[62] && b[63] === 'R' && !attacked(s, 60, them) && !attacked(s, 61, them) && !attacked(s, 62, them)) mv.push({ from: 60, to: 62, flag: 'k' });
+            if ((s.castle & 2) && !b[59] && !b[58] && !b[57] && b[56] === 'R' && !attacked(s, 60, them) && !attacked(s, 59, them) && !attacked(s, 58, them)) mv.push({ from: 60, to: 58, flag: 'q' });
+          }
+          if (!W && i === 4) {
+            if ((s.castle & 4) && !b[5] && !b[6] && b[7] === 'r' && !attacked(s, 4, them) && !attacked(s, 5, them) && !attacked(s, 6, them)) mv.push({ from: 4, to: 6, flag: 'k' });
+            if ((s.castle & 8) && !b[3] && !b[2] && !b[1] && b[0] === 'r' && !attacked(s, 4, them) && !attacked(s, 3, them) && !attacked(s, 2, them)) mv.push({ from: 4, to: 2, flag: 'q' });
+          }
+        }
+      } else {
+        const dirs = t === 'r' ? RD : t === 'b' ? BD : QD;
+        for (const [dr, dc] of dirs) {
+          let rr = r + dr, cc = c + dc;
+          while (rr >= 0 && rr < 8 && cc >= 0 && cc < 8) {
+            const t2 = rr * 8 + cc, q = b[t2];
+            if (!q) { if (!capsOnly) mv.push({ from: i, to: t2 }); }
+            else { if (col(q) !== us) mv.push({ from: i, to: t2 }); break; }
+            rr += dr; cc += dc;
+          }
+        }
+      }
+    }
+    return mv;
+  }
+
+  function make(s, m) {
+    const b = s.b, p = b[m.from], us = s.turn, W = us === 'w';
+    const capSq = m.flag === 'e' ? m.to + (W ? 8 : -8) : m.to;
+    const u = { m, p, cap: b[capSq], capSq, castle: s.castle, ep: s.ep, half: s.half };
+    b[capSq] = '';
+    b[m.to] = m.promo ? (W ? m.promo.toUpperCase() : m.promo) : p;
+    b[m.from] = '';
+    if (p === 'K' || p === 'k') {
+      s.kings[us] = m.to;
+      if (m.flag === 'k') { b[m.to - 1] = b[m.to + 1]; b[m.to + 1] = ''; }
+      else if (m.flag === 'q') { b[m.to + 1] = b[m.to - 2]; b[m.to - 2] = ''; }
+    }
+    s.castle &= CM[m.from] & CM[m.to];
+    s.ep = m.flag === 'd' ? (m.from + m.to) >> 1 : -1;
+    s.half = (p === 'P' || p === 'p' || u.cap) ? 0 : s.half + 1;
+    if (!W) s.full++;
+    s.turn = W ? 'b' : 'w';
+    return u;
+  }
+
+  function unmake(s, u) {
+    const m = u.m, b = s.b;
+    s.turn = s.turn === 'w' ? 'b' : 'w';
+    const us = s.turn;
+    if (us === 'b') s.full--;
+    b[m.from] = u.p;
+    b[m.to] = '';
+    b[u.capSq] = u.cap;
+    if (u.p === 'K' || u.p === 'k') {
+      s.kings[us] = m.from;
+      if (m.flag === 'k') { b[m.to + 1] = b[m.to - 1]; b[m.to - 1] = ''; }
+      else if (m.flag === 'q') { b[m.to - 2] = b[m.to + 1]; b[m.to + 1] = ''; }
+    }
+    s.castle = u.castle; s.ep = u.ep; s.half = u.half;
+  }
+
+  function legal(s) {
+    const out = [], us = s.turn;
+    for (const m of gen(s, false)) {
+      const u = make(s, m);
+      if (!attacked(s, s.kings[us], s.turn)) out.push(m);
+      unmake(s, u);
+    }
+    return out;
+  }
+
+  function inCheck(s) { return attacked(s, s.kings[s.turn], s.turn === 'w' ? 'b' : 'w'); }
+
+  function key(s) { return s.b.map(p => p || '.').join('') + s.turn + s.castle + ',' + s.ep; }
+
+  function evaluate(s) {
+    let score = 0, nonPawn = 0;
+    const b = s.b;
+    for (let i = 0; i < 64; i++) {
+      const p = b[i];
+      if (!p) continue;
+      const t = p.toLowerCase();
+      if (t === 'k') continue;
+      const W = p < 'a', idx = W ? i : (i ^ 56);
+      const v = VAL[t] + PST[t][idx];
+      score += W ? v : -v;
+      if (t !== 'p') nonPawn += VAL[t];
+    }
+    const kt = nonPawn <= 1400 ? PST.ke : PST.k;
+    score += kt[s.kings.w] - kt[s.kings.b ^ 56];
+    return s.turn === 'w' ? score : -score;
+  }
+
+  let nodes = 0, deadline = 0, stopped = false;
+
+  function order(s, mv) {
+    const b = s.b;
+    for (const m of mv) {
+      let sc = 0;
+      const victim = m.flag === 'e' ? 'p' : b[m.to];
+      if (victim) sc = 10000 + 10 * VAL[victim.toLowerCase()] - VAL[b[m.from].toLowerCase()];
+      if (m.promo) sc += 9000 + VAL[m.promo];
+      m.os = sc;
+    }
+    return mv.sort((a, c) => c.os - a.os);
+  }
+
+  function tick() { if ((++nodes & 2047) === 0 && Date.now() > deadline) stopped = true; }
+
+  function qs(s, alpha, beta, ply) {
+    tick();
+    if (stopped) return 0;
+    const stand = evaluate(s);
+    if (stand >= beta) return beta;
+    if (stand > alpha) alpha = stand;
+    if (ply > 8) return alpha;
+    const us = s.turn;
+    for (const m of order(s, gen(s, true))) {
+      const u = make(s, m);
+      if (attacked(s, s.kings[us], s.turn)) { unmake(s, u); continue; }
+      const sc = -qs(s, -beta, -alpha, ply + 1);
+      unmake(s, u);
+      if (stopped) return 0;
+      if (sc >= beta) return beta;
+      if (sc > alpha) alpha = sc;
+    }
+    return alpha;
+  }
+
+  function nega(s, depth, alpha, beta, ply, useQ) {
+    tick();
+    if (stopped) return 0;
+    if (s.half >= 100) return 0;
+    if (depth === 0) return useQ ? qs(s, alpha, beta, 0) : evaluate(s);
+    const us = s.turn, them = us === 'w' ? 'b' : 'w';
+    let count = 0;
+    for (const m of order(s, gen(s, false))) {
+      const u = make(s, m);
+      if (attacked(s, s.kings[us], s.turn)) { unmake(s, u); continue; }
+      count++;
+      const sc = -nega(s, depth - 1, -beta, -alpha, ply + 1, useQ);
+      unmake(s, u);
+      if (stopped) return 0;
+      if (sc >= beta) return beta;
+      if (sc > alpha) alpha = sc;
+    }
+    if (!count) return attacked(s, s.kings[us], them) ? -MATE + ply : 0;
+    return alpha;
+  }
+
+  const LEVELS = {
+    squire: { d: 1, q: false, noise: 140, blunder: 0.25, t: 800 },
+    knight: { d: 2, q: true, noise: 30, blunder: 0, t: 1500 },
+    hand:   { d: 3, q: true, noise: 0, blunder: 0, t: 2500 },
+    raven:  { d: 5, q: true, noise: 0, blunder: 0, t: 3000 }
+  };
+
+  // Iterative deepening; an unfinished depth is discarded so the reply always comes from a complete search.
+  function search(state, level) {
+    const L = LEVELS[level] || LEVELS.knight;
+    const s = clone(state);
+    const moves = legal(s);
+    if (!moves.length) return null;
+    if (moves.length === 1) return moves[0];
+    if (Math.random() < L.blunder) return moves[Math.floor(Math.random() * moves.length)];
+    deadline = Date.now() + L.t; stopped = false; nodes = 0;
+    let best = order(s, moves)[0];
+    let rootMoves = moves.slice();
+    for (let d = 1; d <= L.d; d++) {
+      let alpha = -INF, bestD = null;
+      const scored = [];
+      for (const m of rootMoves) {
+        const u = make(s, m);
+        let sc = -nega(s, d - 1, -INF, L.noise ? INF : -alpha, 1, L.q);
+        unmake(s, u);
+        if (stopped) break;
+        if (L.noise) sc += (Math.random() * 2 - 1) * L.noise;
+        scored.push([sc, m]);
+        if (sc > alpha) { alpha = sc; bestD = m; }
+      }
+      if (stopped || !bestD) break;
+      best = bestD;
+      scored.sort((a, c) => c[0] - a[0]);
+      rootMoves = scored.map(x => x[1]);
+      if (alpha > MATE - 1000) break;
+    }
+    return best;
+  }
+
+  return { newState, fromFEN, clone, legal, gen, make, unmake, inCheck, attacked, key, search, col, VAL };
+}
+/*ENGINE-END*/
+
+/* ------------------------------------------------------------------ */
+/* Pieces: original stylized portraits. Classes map to CSS fills; .f/.i follow the side's theme colours. */
+const ART = {
+  w: {
+    // Jon Snow: dark curls, fur collar, Longclaw's wolf pommel over the shoulder
+    k: `<g class="o">
+      <path class="x" d="M60 52 L76 45 L77.5 48 L61.5 55 Z"/>
+      <path class="h1" d="M69 47 L77 26 L80.5 27.5 L72.5 48 Z"/>
+      <circle class="m" cx="80" cy="23" r="4.5"/>
+      <path class="f" d="M12 96 C14 74 30 66 50 66 C70 66 86 74 88 96 Z"/>
+      <path class="i" d="M22 80 Q26 66 35 70 Q39 61 46 67 Q50 59 54 67 Q61 61 65 70 Q74 66 78 80 Q66 74 50 76 Q34 74 22 80 Z"/>
+      <rect class="s" x="44" y="56" width="12" height="13"/>
+      <path class="h1" d="M33 47 C30 26 40 19 50 19 C62 19 71 26 67 48 L63 58 L62 40 L38 40 L37 58 Z"/>
+      <ellipse class="s" cx="50" cy="44" rx="13" ry="15"/>
+      <path class="h1" d="M36 39 Q37 25 50 25 Q63 25 64 39 Q60 32 56 35 Q52 29 48 34 Q44 30 41 35 Q38 33 36 39 Z"/>
+      <path class="h1" d="M38 47 Q40 60 50 61 Q60 60 62 47 Q58 55 50 56 Q42 55 38 47 Z"/>
+      <path class="ln" d="M42 40 L47 41.5 M53 41.5 L58 40"/>
+      <circle class="e" cx="45" cy="45" r="1.8"/><circle class="e" cx="55" cy="45" r="1.8"/>
+      <path class="ln" d="M47 52.5 L53 52.5"/>
+    </g>`,
+    // Daenerys: silver braided crown, long silver hair, a small dragon on her shoulder
+    q: `<g class="o">
+      <path class="h2" d="M32 44 C30 22 42 17 50 17 C58 17 70 22 68 44 L73 86 L60 80 L58 56 L42 56 L40 80 L27 86 Z"/>
+      <path class="f" d="M18 96 C20 78 32 70 50 70 C68 70 80 78 82 96 Z"/>
+      <path class="s" d="M41 70 L50 83 L59 70 Z"/>
+      <rect class="s" x="45" y="56" width="10" height="15"/>
+      <ellipse class="s" cx="50" cy="43" rx="12" ry="14"/>
+      <path class="h2" d="M37 41 C38 28 46 26 50 26 C56 26 63 30 63 41 C58 34 54 33 50 33 C46 33 41 35 37 41 Z"/>
+      <circle class="h2" cx="39.5" cy="28.5" r="3.6"/><circle class="h2" cx="44.5" cy="24.5" r="3.6"/><circle class="h2" cx="50" cy="23" r="3.6"/><circle class="h2" cx="55.5" cy="24.5" r="3.6"/><circle class="h2" cx="60.5" cy="28.5" r="3.6"/>
+      <circle class="h2" cx="33" cy="54" r="3"/><circle class="h2" cx="32.5" cy="60" r="3"/><circle class="h2" cx="32" cy="66" r="3"/>
+      <circle class="e" cx="45.5" cy="43" r="1.8"/><circle class="e" cx="54.5" cy="43" r="1.8"/>
+      <path class="wine ns" d="M46.5 50.5 Q50 53 53.5 50.5 Q50 51.6 46.5 50.5 Z"/>
+      <path class="i" d="M64 78 L71 68 L75 63 L80 64 L78 67 L82 71 L76 71 L74 77 Z"/>
+      <path class="i" d="M72 68 L85 56 L80 67 Z"/>
+    </g>`,
+    // Tyrion: on the battlements of a tower, wine goblet raised
+    r: `<g class="o">
+      <path class="i" d="M30 64 C32 55 40 52 50 52 C60 52 68 55 70 64 Z"/>
+      <path class="h3" d="M35 40 C34 22 44 18 51 18 C60 18 68 24 66 42 L62 50 L40 50 Z"/>
+      <ellipse class="s" cx="50" cy="38" rx="13" ry="14"/>
+      <path class="h3" d="M37 34 C38 24 46 22 52 22 C60 22 64 28 64 34 C60 29 57 30 54 28 C51 31 46 29 43 31 C41 30 39 32 37 34 Z"/>
+      <path class="h3" d="M38 42 Q40 54 50 55 Q60 54 62 42 Q58 49 50 50 Q42 49 38 42 Z"/>
+      <path class="sc" d="M43 35 L57 42"/>
+      <circle class="e" cx="45" cy="37" r="1.7"/><circle class="e" cx="55" cy="37" r="1.7"/>
+      <path class="i" d="M60 57 Q67 55 72 49 L75.5 51 Q70 59 62 62 Z"/>
+      <path class="f" d="M22 96 L22 52 L34 52 L34 62 L66 62 L66 52 L78 52 L78 96 Z"/>
+      <path class="ln" d="M22 74 H78 M22 86 H78 M40 62 V74 M60 62 V74 M50 74 V86 M32 86 V96 M68 86 V96"/>
+      <path class="g" d="M68 32 L80 32 L78 40 Q74 44 70 40 Z"/>
+      <rect class="g" x="73" y="42" width="2.2" height="8"/>
+      <ellipse class="wine ns" cx="74" cy="32" rx="5.5" ry="1.5"/>
+      <circle class="s" cx="74" cy="46.5" r="3.2"/>
+    </g>`,
+    // Varys: bald, high-collared robes, hands in sleeves, a "little bird" on his shoulder
+    b: `<g class="o">
+      <path class="f" d="M14 96 C16 74 30 64 50 64 C70 64 84 74 86 96 Z"/>
+      <path class="i" d="M34 70 Q50 60 66 70 L62 77 Q50 70 38 77 Z"/>
+      <path class="i" d="M34 96 L34 92 Q50 84 66 92 L66 96 Z"/>
+      <ellipse class="s" cx="50" cy="89" rx="6" ry="2.6"/>
+      <rect class="s" x="44" y="53" width="12" height="12"/>
+      <ellipse class="s" cx="50" cy="40" rx="15" ry="17"/>
+      <ellipse class="sh ns" cx="44" cy="29" rx="5" ry="2.4"/>
+      <path class="ln" d="M41 37 Q45 35.5 47.5 37 M52.5 37 Q55 35.5 59 37"/>
+      <circle class="e" cx="45" cy="41" r="1.8"/><circle class="e" cx="55" cy="41" r="1.8"/>
+      <path class="ln" d="M44.5 50 Q50 54 55.5 50"/>
+      <path class="i" d="M20 74 Q21 66 28 65 L33 61 L32.5 66 Q36 70 31 75 Z"/>
+      <path class="g" d="M33 61.5 L37.5 62.5 L33 64 Z"/>
+    </g>`,
+    // Drogon: a big dragon head in profile, wings spread, breathing fire
+    n: `<g class="o">
+      <path class="i" d="M54 64 L94 12 L90 34 L99 38 L88 50 L95 60 L80 62 L86 72 L62 76 Z"/>
+      <path class="ln" d="M60 70 L94 12 M70 66 L90 34 M76 64 L88 50"/>
+      <path class="bn" d="M50 23 L66 5 L58 25 Z"/>
+      <path class="bn" d="M43 23 L50 5 L50 23 Z"/>
+      <path class="f" d="M26 96 C28 82 36 74 42 62 C46 54 44 48 36 48 L18 52 C12 53 8 50 10 45 L14 41 L24 34 C30 26 40 20 50 20 C58 20 64 24 68 32 C74 44 72 58 66 70 C62 80 66 88 72 96 Z"/>
+      <path class="bn" d="M68 34 L79 30 L70 41 Z"/>
+      <path class="bn" d="M70 46 L81 44 L71 53 Z"/>
+      <path class="bn" d="M68 58 L79 58 L68 65 Z"/>
+      <path class="ln" d="M13 46 L30 44 M40 72 Q46 75 52 73 M36 82 Q44 85 52 83"/>
+      <path class="gl ns" d="M32 33 L42 30 L39 36 Z"/>
+      <circle class="e" cx="15" cy="43" r="1.4"/>
+      <path class="fl" d="M11 48 C4 48 1 55 3 61 C5 57 8 57 11 58 C9 54 11 51 15 51 Z"/>
+      <path class="gl ns" d="M10 50 C6 51 5 54 6 57 C8 55 10 55 11 55 Z"/>
+    </g>`,
+    // Unsullied: bronze spiked helmet and spear
+    p: `<g class="o">
+      <rect class="wd" x="76" y="16" width="3.5" height="80"/>
+      <path class="m" d="M77.75 4 L83 18 L72.5 18 Z"/>
+      <path class="f" d="M24 96 C26 80 36 74 50 74 C64 74 74 80 76 96 Z"/>
+      <path class="ln" d="M36 80 L64 94"/>
+      <rect class="s" x="45" y="62" width="10" height="13"/>
+      <ellipse class="s" cx="50" cy="56" rx="11" ry="12"/>
+      <path class="br" d="M36 57 C36 41 42 34 50 34 C58 34 64 41 64 57 L60 57 L60 50 L40 50 L40 57 Z"/>
+      <path class="br" d="M47.5 35 L50 17 L52.5 35 Z"/>
+      <circle class="e" cx="45.5" cy="55" r="1.7"/><circle class="e" cx="54.5" cy="55" r="1.7"/>
+      <circle class="s" cx="77.75" cy="80" r="3.6"/>
+    </g>`
+  },
+  b: {
+    // Joffrey: blond, tall golden crown, a smirk
+    k: `<g class="o">
+      <path class="f" d="M16 96 C18 76 32 68 50 68 C68 68 82 76 84 96 Z"/>
+      <path class="g" d="M34 74 Q50 66 66 74 L62 80 Q50 74 38 80 Z"/>
+      <circle class="g" cx="50" cy="87" r="5"/>
+      <rect class="s" x="44" y="58" width="12" height="12"/>
+      <ellipse class="s" cx="50" cy="46" rx="13" ry="15"/>
+      <path class="h3" d="M36 48 C34 32 42 28 50 28 C58 28 66 32 64 48 C62 40 60 38 57 38 L43 38 C40 38 38 40 36 48 Z"/>
+      <path class="g" d="M34 36 L36 17 L42 26 L46 13 L50 24 L54 13 L58 26 L64 17 L66 36 Z"/>
+      <circle class="wine ns" cx="50" cy="32" r="2"/>
+      <circle class="e" cx="45" cy="46" r="1.8"/><circle class="e" cx="55" cy="46" r="1.8"/>
+      <path class="ln" d="M44.5 54 Q50 56.5 56 52"/>
+    </g>`,
+    // Cersei: short-cropped hair, slim crown, wine goblet raised
+    q: `<g class="o">
+      <path class="f" d="M18 96 C20 78 32 70 50 70 C68 70 80 78 82 96 Z"/>
+      <path class="g" d="M38 72 Q50 66 62 72 L60 77 Q50 72 40 77 Z"/>
+      <path class="f" d="M36 74 Q25 66 21 57 L25 55.5 Q31 64 40 70 Z"/>
+      <rect class="s" x="45" y="56" width="10" height="15"/>
+      <ellipse class="s" cx="50" cy="44" rx="12" ry="14"/>
+      <path class="h3" d="M37 43 C36 29 44 27 50 27 C57 27 64 30 63 43 C61 37 58 35 50 35 C43 35 39 37 37 43 Z"/>
+      <path class="g" d="M38 31 L40 20 L45 26 L50 17 L55 26 L60 20 L62 31 Z"/>
+      <circle class="e" cx="45.5" cy="44" r="1.8"/><circle class="e" cx="54.5" cy="44" r="1.8"/>
+      <path class="wine ns" d="M46.5 52 Q50 54.5 53.5 52 Q50 53.2 46.5 52 Z"/>
+      <path class="g" d="M15 38 L29 38 L27 46 Q22 51 17 46 Z"/>
+      <ellipse class="wine ns" cx="22" cy="38" rx="6.5" ry="1.6"/>
+      <rect class="g" x="21" y="48" width="2.2" height="8"/>
+      <circle class="s" cx="22" cy="54" r="3.4"/>
+    </g>`,
+    // The Mountain: enormous great helm and pauldrons behind the battlements
+    r: `<g class="o">
+      <path class="x" d="M8 72 C10 56 26 46 50 46 C74 46 90 56 92 72 Z"/>
+      <path class="x" d="M31 54 L31 22 C31 11 40 7 50 7 C60 7 69 11 69 22 L69 54 Z"/>
+      <path class="ln" d="M50 7 V54"/>
+      <rect class="e" x="35" y="25" width="30" height="4"/>
+      <circle class="e" cx="44" cy="38" r="1.2"/><circle class="e" cx="56" cy="38" r="1.2"/><circle class="e" cx="44" cy="43" r="1.2"/><circle class="e" cx="56" cy="43" r="1.2"/>
+      <path class="f" d="M14 96 L14 56 L28 56 L28 66 L72 66 L72 56 L86 56 L86 96 Z"/>
+      <path class="ln" d="M14 77 H86 M14 87 H86 M38 66 V77 M62 66 V77 M50 77 V87 M30 87 V96 M70 87 V96"/>
+    </g>`,
+    // Qyburn: pointed hood, shadowed face, maester's chain
+    b: `<g class="o">
+      <path class="f" d="M14 96 C16 74 30 64 50 64 C70 64 84 74 86 96 Z"/>
+      <path class="f" d="M27 76 C25 50 35 30 50 10 C65 30 75 50 73 76 Z"/>
+      <ellipse class="sd" cx="50" cy="50" rx="13.5" ry="17"/>
+      <ellipse class="s" cx="50" cy="53" rx="10" ry="13"/>
+      <path class="m" d="M42 41 Q50 37 58 41 L58 44 Q50 41 42 44 Z"/>
+      <circle class="e" cx="46" cy="51" r="1.6"/><circle class="e" cx="54" cy="51" r="1.6"/>
+      <path class="ln" d="M46.5 60 L53.5 60 M41 55 L43 57 M59 55 L57 57"/>
+      <circle class="ch" cx="34" cy="81" r="3"/><circle class="ch" cx="40.5" cy="84.5" r="3"/><circle class="ch" cx="47" cy="86.5" r="3"/><circle class="ch" cx="53.5" cy="86.5" r="3"/><circle class="ch" cx="60" cy="84.5" r="3"/><circle class="ch" cx="66.5" cy="81" r="3"/>
+    </g>`,
+    // Jaime: armoured warhorse with a gold chanfron, bearing his golden hand as a sigil
+    n: `<g class="o">
+      <path class="i" d="M56 18 C70 22 78 36 80 52 C82 66 78 80 82 96 L70 96 C68 80 72 64 66 48 Z"/>
+      <path class="f" d="M30 96 C30 84 36 74 40 66 C42 60 38 56 32 58 L18 64 C12 66 8 62 10 56 L20 40 C26 28 36 18 50 16 L56 6 L61 18 C70 26 74 40 72 56 C70 70 66 84 70 96 Z"/>
+      <path class="g" d="M21 45 L39 25 L46 31 L28 52 Z"/>
+      <circle class="e" cx="45" cy="36" r="2.4"/>
+      <circle class="e" cx="15" cy="58" r="1.6"/>
+      <path class="ln" d="M10 61 L20 61 M25 57 L46 50 L57 64"/>
+      <path class="g" d="M44 82 L44 72 L46.5 72 L46.5 78 L47.5 69 L50 69 L50 78 L51 70 L53.5 70 L53.5 79 L54.5 74 L57 74 L57 83 Q54 89 49 87 Q44 86 44 82 Z"/>
+    </g>`,
+    // Lannister guard: gold crested helmet with nose guard, halberd
+    p: `<g class="o">
+      <rect class="wd" x="76" y="14" width="3.5" height="82"/>
+      <path class="m" d="M79.5 18 C90 20 92 30 88 37 L79.5 34 Z"/>
+      <path class="m" d="M77.75 3 L81.5 16 L74 16 Z"/>
+      <path class="f" d="M24 96 C26 80 36 74 50 74 C64 74 74 80 76 96 Z"/>
+      <path class="g" d="M38 81 Q50 77 62 81 L60 96 L40 96 Z"/>
+      <rect class="s" x="45" y="62" width="10" height="13"/>
+      <ellipse class="s" cx="50" cy="56" rx="11" ry="12"/>
+      <path class="g" d="M40 39 C40 27 47 22 50 22 C53 22 60 27 60 39 C56 34 53 32 50 32 C47 32 44 34 40 39 Z"/>
+      <path class="g" d="M36 56 C36 42 42 36 50 36 C58 36 64 42 64 56 L60 56 L60 49 L52 49 L52 61 L48 61 L48 49 L40 49 L40 56 Z"/>
+      <circle class="e" cx="44.5" cy="54" r="1.7"/><circle class="e" cx="55.5" cy="54" r="1.7"/>
+      <circle class="s" cx="77.75" cy="80" r="3.6"/>
+    </g>`
+  }
+};
+const CHAR = {
+  w: { k: 'Jon Snow', q: 'Daenerys Targaryen', r: 'Tyrion Lannister, Hand of the Queen', b: 'Lord Varys', n: 'Drogon', p: 'Unsullied' },
+  b: { k: 'King Joffrey', q: 'Cersei Lannister', r: 'The Mountain', b: 'Qyburn', n: 'Ser Jaime Lannister', p: 'Lannister guard' }
+};
+const ROLE = { k: 'King', q: 'Queen', r: 'Rook', b: 'Bishop', n: 'Knight', p: 'Pawn' };
+const GLYPH = { k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟' };
+const HOUSE = { w: 'House Targaryen', b: 'House Lannister' };
+const SHORT = { w: 'Targaryen', b: 'Lannister' };
+
+const THEMES = {
+  purple: { name: 'Purple & Black', light: '#dccfee', dark: '#6c4f9c', p1: '#8f52e6', p1i: '#1b0b30', p2: '#15111b', p2i: '#d7c2ff', acc: '#b384ff', bg: '#120c1a' },
+  blackyellow: { name: 'Black & Yellow', light: '#f3e7b5', dark: '#8a7836', p1: '#18160f', p1i: '#f4d35e', p2: '#f5c518', p2i: '#2a2000', acc: '#f5c518', bg: '#0f0e0a' },
+  redblack: { name: 'Red & Black', light: '#ecc6bd', dark: '#93403b', p1: '#d8322f', p1i: '#2a0404', p2: '#17110f', p2i: '#f2a69c', acc: '#e5484d', bg: '#130808' },
+  bluegreen: { name: 'Blue & Green', light: '#cfe3dc', dark: '#2c5f63', p1: '#3c7dff', p1i: '#071a40', p2: '#23b061', p2i: '#032412', acc: '#3fc1b0', bg: '#07141a' },
+  greenyellow: { name: 'Green & Yellow', light: '#f1efc2', dark: '#5b7d34', p1: '#2e9e44', p1i: '#052a0d', p2: '#f4d23a', p2i: '#3a2e00', acc: '#c9dc3c', bg: '#0d1407' },
+  icefire: { name: 'Ice & Fire', light: '#dbe9f2', dark: '#4f6f86', p1: '#ff6a1f', p1i: '#3a0d00', p2: '#a8dcff', p2i: '#0b2a40', acc: '#ff8a3d', bg: '#0b121a' }
+};
+const LEVEL_INFO = {
+  squire: { name: 'Squire', desc: 'Makes beginner mistakes' },
+  knight: { name: 'Knight', desc: 'Looks 2 moves ahead' },
+  hand: { name: 'Hand of the King', desc: 'Looks 3 moves ahead' },
+  raven: { name: 'Three-Eyed Raven', desc: 'Looks up to 5 moves ahead' }
+};
+
+function pieceSVG(p) {
+  const side = p < 'a' ? 'w' : 'b', t = p.toLowerCase();
+  return `<div class="pc-box side-${side}"><svg class="pc" viewBox="0 0 100 100" aria-hidden="true">${ART[side][t]}</svg><span class="hint">${GLYPH[t]}︎</span></div>`;
+}
+function miniSVG(p) {
+  const side = p < 'a' ? 'w' : 'b';
+  return `<svg class="pc side-${side}" viewBox="0 0 100 100" aria-hidden="true">${ART[side][p.toLowerCase()]}</svg>`;
+}
+
+/* ------------------------------------------------------------------ */
+/* Storage (best effort — the game works without it) */
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+};
+const cfg = Object.assign({ mode: 'pvc', side: 'w', level: 'knight', theme: 'purple', hints: true, music: true, sfx: true, vol: 0.5 }, store.get('throneChess.settings', {}));
+if (!THEMES[cfg.theme]) cfg.theme = 'purple';
+if (!LEVEL_INFO[cfg.level]) cfg.level = 'knight';
+const saveCfg = () => store.set('throneChess.settings', cfg);
+
+function blankStats() {
+  const lv = {}; for (const k in LEVEL_INFO) lv[k] = { w: 0, l: 0, d: 0 };
+  return { played: 0, pvp: { w: 0, b: 0, d: 0 }, ai: lv, streak: 0, best: 0, longest: 0, fastestMate: null, recent: [] };
+}
+let stats = Object.assign(blankStats(), store.get('throneChess.stats', {}));
+for (const k in LEVEL_INFO) if (!stats.ai[k]) stats.ai[k] = { w: 0, l: 0, d: 0 };
+
+/* ------------------------------------------------------------------ */
+/* Music & sound: an original, synthesized piece (D minor, 3/4) — not the TV theme */
+const Music = (() => {
+  let ctx = null, master, mus, fx, timer = null, nextT = 0, step = 0, playing = false, noise = null;
+  const BEAT = 60 / 72, EIGHTH = BEAT / 2, BAR = BEAT * 3;
+  const mf = n => 440 * Math.pow(2, (n - 69) / 12);
+  const CH = { Dm: [50, 53, 57], Bb: [46, 50, 53], C: [48, 52, 55], Gm: [43, 46, 50], A: [45, 49, 52] };
+  const PROG = ['Dm', 'Dm', 'Bb', 'C', 'Dm', 'Gm', 'A', 'A'];
+  const MEL = [[[74, 3]], [[72, 1], [69, 1], [65, 1]], [[67, 2], [65, 1]], [[64, 2], [67, 1]], [[62, 1], [65, 1], [69, 1]], [[70, 2], [69, 1]], [[64, 1], [67, 1], [65, 1]], [[64, 3]]];
+  const ARP = [0, 2, 3, 2, 1, 2];
+
+  function init() {
+    if (ctx) return true;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return false;
+    ctx = new AC();
+    master = ctx.createGain(); master.gain.value = cfg.vol; master.connect(ctx.destination);
+    const rev = ctx.createConvolver(); rev.buffer = impulse(3);
+    const wet = ctx.createGain(); wet.gain.value = 0.4; rev.connect(wet); wet.connect(master);
+    mus = ctx.createGain(); mus.gain.value = 0; mus.connect(master); mus.connect(rev);
+    fx = ctx.createGain(); fx.gain.value = 0.8; fx.connect(master);
+    return true;
+  }
+  function impulse(sec) {
+    const len = Math.floor(ctx.sampleRate * sec), buf = ctx.createBuffer(2, len, ctx.sampleRate);
+    for (let ch = 0; ch < 2; ch++) { const d = buf.getChannelData(ch); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3); }
+    return buf;
+  }
+  function env(g, t, a, peak, dur, rel) {
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(peak, t + a);
+    g.gain.setValueAtTime(peak, t + Math.max(a, dur - rel));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  }
+  function cello(n, t, dur, amp) {
+    const g = ctx.createGain(), lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 650; lp.Q.value = 1;
+    env(g, t, 0.35, 0.05 * amp, dur, 0.6);
+    for (const det of [-5, 5]) { const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = mf(n); o.detune.value = det; o.connect(lp); o.start(t); o.stop(t + dur + 0.05); }
+    lp.connect(g); g.connect(mus);
+  }
+  function pluck(n, t) {
+    const o = ctx.createOscillator(), g = ctx.createGain(), lp = ctx.createBiquadFilter();
+    o.type = 'triangle'; o.frequency.value = mf(n);
+    lp.type = 'lowpass'; lp.frequency.value = 2200;
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.085, t + 0.006); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.1);
+    o.connect(lp); lp.connect(g); g.connect(mus); o.start(t); o.stop(t + 1.15);
+  }
+  function lead(n, t, dur) {
+    const g = ctx.createGain(), lfo = ctx.createOscillator(), lg = ctx.createGain();
+    lfo.frequency.value = 5; lg.gain.value = 3.5; lfo.connect(lg);
+    env(g, t, 0.12, 0.065, dur, 0.3);
+    for (const [type, mult, amp] of [['sine', 1, 1], ['triangle', 2, 0.25]]) {
+      const o = ctx.createOscillator(), og = ctx.createGain();
+      o.type = type; o.frequency.value = mf(n) * mult; lg.connect(o.frequency); og.gain.value = amp;
+      o.connect(og); og.connect(g); o.start(t); o.stop(t + dur + 0.05);
+    }
+    lfo.start(t); lfo.stop(t + dur + 0.05);
+    g.connect(mus);
+  }
+  function drum(t, amp, dest) {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'sine'; o.frequency.setValueAtTime(110, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.35);
+    g.gain.setValueAtTime(0.5 * amp, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+    o.connect(g); g.connect(dest || mus); o.start(t); o.stop(t + 0.55);
+  }
+  function scheduleStep(st, t) {
+    const pos = st % 48, bar = Math.floor(pos / 6), e = pos % 6, loop = Math.floor(st / 48);
+    const [r, th, f] = CH[PROG[bar]];
+    const tones = [r + 12, th + 12, f + 12, r + 24];
+    if (e === 0) {
+      cello(r - 12, t, BAR + 0.1, 1);
+      cello(f - 12, t, BAR + 0.1, 0.55);
+      drum(t, 1);
+      if (loop > 0) { let off = 0; for (const [n, d] of MEL[bar]) { lead(loop % 3 === 2 ? n + 12 : n, t + off * BEAT, d * BEAT); off += d; } }
+    }
+    if (e === 4) drum(t, 0.35);
+    pluck(tones[ARP[e]], t);
+  }
+  function tick() { while (nextT < ctx.currentTime + 0.25) { scheduleStep(step, nextT); nextT += EIGHTH; step++; } }
+
+  function start() {
+    if (!init()) return;
+    ctx.resume();
+    if (playing) return;
+    playing = true; step = 0; nextT = ctx.currentTime + 0.15;
+    mus.gain.cancelScheduledValues(ctx.currentTime);
+    mus.gain.setValueAtTime(0.0001, ctx.currentTime); mus.gain.exponentialRampToValueAtTime(1, ctx.currentTime + 2);
+    timer = setInterval(tick, 50); tick();
+  }
+  function stop() {
+    if (!ctx || !playing) return;
+    playing = false; clearInterval(timer);
+    mus.gain.cancelScheduledValues(ctx.currentTime);
+    mus.gain.setValueAtTime(mus.gain.value, ctx.currentTime); mus.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.4);
+  }
+  function setVol(v) { if (ctx) master.gain.setTargetAtTime(v, ctx.currentTime, 0.05); }
+  function getNoise() {
+    if (noise) return noise;
+    noise = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.3), ctx.sampleRate);
+    const d = noise.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    return noise;
+  }
+  function sfx(type) {
+    if (!cfg.sfx || !init()) return;
+    ctx.resume();
+    const t = ctx.currentTime + 0.01;
+    if (type === 'move' || type === 'capture') {
+      const src = ctx.createBufferSource(), bp = ctx.createBiquadFilter(), g = ctx.createGain();
+      src.buffer = getNoise(); bp.type = 'bandpass'; bp.frequency.value = 900; bp.Q.value = 3;
+      g.gain.setValueAtTime(0.6, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
+      src.connect(bp); bp.connect(g); g.connect(fx); src.start(t); src.stop(t + 0.1);
+      const o = ctx.createOscillator(), og = ctx.createGain();
+      o.frequency.value = 170; og.gain.setValueAtTime(0.25, t); og.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+      o.connect(og); og.connect(fx); o.start(t); o.stop(t + 0.13);
+    }
+    if (type === 'capture') {
+      drum(t, 0.9, fx);
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'square'; o.frequency.setValueAtTime(1400, t); o.frequency.exponentialRampToValueAtTime(1900, t + 0.2);
+      g.gain.setValueAtTime(0.05, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
+      o.connect(g); g.connect(fx); o.start(t); o.stop(t + 0.26);
+    }
+    if (type === 'check') {
+      const lp = ctx.createBiquadFilter(), g = ctx.createGain();
+      lp.type = 'lowpass'; lp.frequency.value = 1300;
+      env(g, t + 0.05, 0.03, 0.08, 0.5, 0.3);
+      for (const n of [57, 64]) { const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = mf(n); o.connect(lp); o.start(t + 0.05); o.stop(t + 0.6); }
+      lp.connect(g); g.connect(fx);
+    }
+    if (type === 'end') {
+      [62, 65, 69, 74].forEach((n, k) => {
+        const o = ctx.createOscillator(), g = ctx.createGain(), tt = t + k * 0.16;
+        o.type = 'triangle'; o.frequency.value = mf(n);
+        g.gain.setValueAtTime(0.0001, tt); g.gain.exponentialRampToValueAtTime(0.12, tt + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, tt + 1.4);
+        o.connect(g); g.connect(fx); o.start(tt); o.stop(tt + 1.45);
+      });
+    }
+  }
+  return { start, stop, setVol, sfx, get playing() { return playing; } };
+})();
+
+/* ------------------------------------------------------------------ */
+/* Computer opponent: the engine runs in a Web Worker so the page never freezes */
+const E = ENGINE();
+let worker = null;
+const pending = new Map();
+let reqId = 0;
+try {
+  const src = `const E = (${ENGINE.toString()})(); onmessage = e => postMessage({ id: e.data.id, m: E.search(e.data.s, e.data.level) });`;
+  worker = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+  worker.onmessage = e => { const r = pending.get(e.data.id); if (r) { pending.delete(e.data.id); r.res(e.data.m); } };
+  worker.onerror = () => {
+    worker = null;
+    for (const [id, r] of pending) { pending.delete(id); setTimeout(() => r.res(E.search(r.s, r.level)), 30); }
+  };
+} catch { worker = null; }
+function requestAI(s, level) {
+  return new Promise(res => {
+    if (worker) { const id = ++reqId; pending.set(id, { res, s, level }); worker.postMessage({ id, s, level }); }
+    else setTimeout(() => res(E.search(s, level)), 30);
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Game state */
+const $ = id => document.getElementById(id);
+const boardEl = $('board');
+let G, S, H, keys, curLegal, over, recorded, sel, targets, lastMove, flipped, thinking, aiToken = 0, promoOpen = false;
+
+function newGame() {
+  G = { mode: cfg.mode, side: cfg.side, level: cfg.level };
+  S = E.newState(); H = []; keys = [E.key(S)]; curLegal = E.legal(S);
+  over = null; recorded = false; sel = null; targets = []; lastMove = null; thinking = false; aiToken++;
+  flipped = G.mode === 'pvc' && G.side === 'b';
+  closePromo(); $('result').hidden = true;
+  render(); maybeAI();
+}
+
+const sqName = i => 'abcdefgh'[i & 7] + (8 - (i >> 3));
+
+function san(s, m, legalMoves) {
+  if (m.flag === 'k') return 'O-O';
+  if (m.flag === 'q') return 'O-O-O';
+  const p = s.b[m.from], t = p.toLowerCase(), isCap = !!s.b[m.to] || m.flag === 'e', to = sqName(m.to);
+  if (t === 'p') return (isCap ? 'abcdefgh'[m.from & 7] + 'x' : '') + to + (m.promo ? '=' + m.promo.toUpperCase() : '');
+  const others = legalMoves.filter(o => o.to === m.to && o.from !== m.from && s.b[o.from] === p);
+  let dis = '';
+  if (others.length) {
+    const sameFile = others.some(o => (o.from & 7) === (m.from & 7)), sameRank = others.some(o => (o.from >> 3) === (m.from >> 3));
+    dis = !sameFile ? 'abcdefgh'[m.from & 7] : !sameRank ? String(8 - (m.from >> 3)) : sqName(m.from);
+  }
+  return t.toUpperCase() + dis + (isCap ? 'x' : '') + to;
+}
+
+function doMove(m) {
+  const notation = san(S, m, curLegal);
+  const u = E.make(S, m);
+  const chk = E.inCheck(S);
+  curLegal = E.legal(S);
+  H.push({ u, san: notation + (chk ? (curLegal.length ? '+' : '#') : '') });
+  keys.push(E.key(S));
+  lastMove = m; sel = null; targets = [];
+  Music.sfx(u.cap ? 'capture' : 'move');
+  if (chk && curLegal.length) Music.sfx('check');
+  checkEnd();
+  render();
+  if (!over) maybeAI();
+}
+
+function insufficient(s) {
+  const minors = [];
+  for (let i = 0; i < 64; i++) {
+    const p = s.b[i]; if (!p) continue;
+    const t = p.toLowerCase(); if (t === 'k') continue;
+    if (t === 'n' || t === 'b') minors.push([t, i]); else return false;
+  }
+  if (minors.length <= 1) return true;
+  if (minors.every(([t]) => t === 'b')) {
+    const shade = i => ((i >> 3) + (i & 7)) % 2;
+    return minors.every(([, i]) => shade(i) === shade(minors[0][1]));
+  }
+  return false;
+}
+
+function checkEnd() {
+  const other = S.turn === 'w' ? 'b' : 'w';
+  if (!curLegal.length) endGame(E.inCheck(S) ? { winner: other, reason: 'checkmate' } : { winner: null, reason: 'stalemate' });
+  else if (S.half >= 100) endGame({ winner: null, reason: 'the fifty-move rule' });
+  else if (keys.filter(k => k === keys[keys.length - 1]).length >= 3) endGame({ winner: null, reason: 'threefold repetition' });
+  else if (insufficient(S)) endGame({ winner: null, reason: 'insufficient material' });
+}
+
+function endGame(res) {
+  over = res; thinking = false; aiToken++;
+  sel = null; targets = [];
+  if (!recorded) { recordStats(res); recorded = true; }
+  Music.sfx('end');
+  const [title, text] = resultText(res);
+  $('resTitle').textContent = title; $('resText').textContent = text;
+  $('result').hidden = false;
+  render();
+}
+
+function resultText(res) {
+  const how = res.reason === 'checkmate' ? 'by checkmate' : res.reason === 'resignation' ? 'by resignation' : '';
+  if (!res.winner) return ['A draw', `The realm stays divided: draw by ${res.reason}.`];
+  if (G.mode === 'pvc') {
+    return res.winner === G.side
+      ? ['You win the Iron Throne!', `${HOUSE[G.side]} is victorious ${how} in ${movesCount()} moves.`]
+      : ['Winter came for you', `${HOUSE[res.winner]} wins ${how}. When you play the game of thrones, you win or you die.`];
+  }
+  return [`${HOUSE[res.winner]} wins!`, `Victory ${how} in ${movesCount()} moves.`];
+}
+const movesCount = () => Math.ceil(H.length / 2);
+
+function recordStats(res) {
+  const n = movesCount();
+  stats.played++;
+  stats.longest = Math.max(stats.longest, n);
+  let label, cls, modeLabel;
+  if (G.mode === 'pvc') {
+    const o = !res.winner ? 'd' : res.winner === G.side ? 'w' : 'l';
+    stats.ai[G.level][o]++;
+    if (o === 'w') { stats.streak++; stats.best = Math.max(stats.best, stats.streak); }
+    else if (o === 'l') stats.streak = 0;
+    if (o === 'w' && res.reason === 'checkmate') stats.fastestMate = stats.fastestMate ? Math.min(stats.fastestMate, n) : n;
+    label = { w: 'Win', l: 'Loss', d: 'Draw' }[o]; cls = o;
+    modeLabel = `vs ${LEVEL_INFO[G.level].name} (as ${SHORT[G.side]})`;
+  } else {
+    stats.pvp[res.winner || 'd']++;
+    if (res.winner && res.reason === 'checkmate') stats.fastestMate = stats.fastestMate ? Math.min(stats.fastestMate, n) : n;
+    label = res.winner ? `${SHORT[res.winner]} won` : 'Draw'; cls = res.winner ? 'w' : 'd';
+    modeLabel = 'Person vs Person';
+  }
+  stats.recent.unshift({ date: new Date().toISOString(), mode: modeLabel, label, cls, moves: n, reason: res.reason });
+  stats.recent = stats.recent.slice(0, 10);
+  store.set('throneChess.stats', stats);
+}
+
+function maybeAI() {
+  if (over || G.mode !== 'pvc' || S.turn === G.side) return;
+  thinking = true;
+  const tok = ++aiToken, started = performance.now();
+  renderPanel();
+  requestAI(E.clone(S), G.level).then(m => {
+    if (tok !== aiToken || !m) return;
+    setTimeout(() => {
+      if (tok !== aiToken) return;
+      thinking = false;
+      const mm = curLegal.find(x => x.from === m.from && x.to === m.to && (x.promo || '') === (m.promo || ''));
+      if (mm) doMove(mm); else render();
+    }, Math.max(0, 400 - (performance.now() - started)));
+  });
+}
+
+function undo() {
+  if (!H.length) return;
+  aiToken++; thinking = false;
+  const popOne = () => { const h = H.pop(); E.unmake(S, h.u); keys.pop(); };
+  popOne();
+  if (G.mode === 'pvc' && S.turn !== G.side && H.length) popOne();
+  over = null; $('result').hidden = true; closePromo();
+  curLegal = E.legal(S); sel = null; targets = [];
+  lastMove = H.length ? H[H.length - 1].u.m : null;
+  render(); maybeAI();
+}
+
+function resign() {
+  if (over) return;
+  const loser = G.mode === 'pvc' ? G.side : S.turn;
+  endGame({ winner: loser === 'w' ? 'b' : 'w', reason: 'resignation' });
+}
+
+const humanCanMove = () => !over && !thinking && !promoOpen && (G.mode === 'pvp' || S.turn === G.side);
+
+function select(i) { sel = i; targets = curLegal.filter(m => m.from === i); renderBoard(); }
+
+function tryMove(from, to) {
+  const cands = curLegal.filter(m => m.from === from && m.to === to);
+  if (!cands.length) return;
+  if (cands.length > 1) openPromo(cands); else doMove(cands[0]);
+}
+
+function openPromo(cands) {
+  promoOpen = true;
+  const side = S.turn;
+  $('promoGrid').innerHTML = ['q', 'r', 'b', 'n'].map(t => {
+    const p = side === 'w' ? t.toUpperCase() : t;
+    return `<button data-p="${t}" title="${CHAR[side][t]}">${pieceSVG(p)}<span>${ROLE[t]}</span></button>`;
+  }).join('');
+  $('promoGrid').onclick = e => {
+    const b = e.target.closest('button[data-p]'); if (!b) return;
+    const m = cands.find(c => c.promo === b.dataset.p);
+    closePromo(); doMove(m);
+  };
+  $('promo').hidden = false;
+}
+function closePromo() { promoOpen = false; $('promo').hidden = true; }
+
+/* ------------------------------------------------------------------ */
+/* Rendering */
+function renderBoard() {
+  const checkSq = !over || over.reason === 'checkmate' ? (E.inCheck(S) ? S.kings[S.turn] : -1) : -1;
+  const tg = new Map(targets.map(m => [m.to, m]));
+  let html = '';
+  for (let vr = 0; vr < 8; vr++) for (let vc = 0; vc < 8; vc++) {
+    const r = flipped ? 7 - vr : vr, c = flipped ? 7 - vc : vc, i = r * 8 + c, p = S.b[i];
+    const cls = ['sq', (r + c) % 2 ? 'd' : 'l'];
+    if (lastMove && (lastMove.from === i || lastMove.to === i)) cls.push('last');
+    if (sel === i) cls.push('sel');
+    if (i === checkSq) cls.push('chk');
+    if (tg.has(i)) { cls.push('tgt'); if (p || tg.get(i).flag === 'e') cls.push('cap'); }
+    if (p && humanCanMove() && E.col(p) === S.turn) cls.push('mine');
+    const title = p ? `${CHAR[E.col(p)][p.toLowerCase()]} (${ROLE[p.toLowerCase()]}) · ${sqName(i)}` : sqName(i);
+    html += `<div class="${cls.join(' ')}" data-i="${i}" title="${title}">`
+      + (vc === 0 ? `<span class="coord rk">${8 - r}</span>` : '')
+      + (vr === 7 ? `<span class="coord fl">${'abcdefgh'[c]}</span>` : '')
+      + (p ? pieceSVG(p) : '') + '</div>';
+  }
+  boardEl.innerHTML = html;
+}
+
+function capturedBy(side) {
+  const list = [];
+  H.forEach((h, k) => { if (h.u.cap && (k % 2 === 0 ? 'w' : 'b') === side) list.push(h.u.cap); });
+  const ord = 'qrbnp';
+  return list.sort((a, b) => ord.indexOf(a.toLowerCase()) - ord.indexOf(b.toLowerCase()));
+}
+function material(side) {
+  let v = 0;
+  for (const p of S.b) if (p && E.col(p) === side) v += E.VAL[p.toLowerCase()];
+  return v;
+}
+
+function renderBar(el, side) {
+  const th = THEMES[cfg.theme];
+  const role = G.mode === 'pvp' ? (side === 'w' ? 'Player 1' : 'Player 2') : side === G.side ? 'You' : `Computer · ${LEVEL_INFO[G.level].name}`;
+  const caps = capturedBy(side);
+  const adv = material(side) - material(side === 'w' ? 'b' : 'w');
+  const think = thinking && S.turn === side ? '<span class="thinking">thinking…</span>' : '';
+  el.className = 'pbar' + (!over && S.turn === side ? ' turn' : '');
+  el.innerHTML = `<span class="dot" style="background:${side === 'w' ? th.p1 : th.p2};border-color:${side === 'w' ? th.p1i : th.p2i}"></span>
+    <span class="who">${HOUSE[side]}</span><span class="role">${role}</span>${think}
+    <span class="caps">${caps.map(miniSVG).join('')}${adv > 0 ? `<span class="adv">+${Math.round(adv / 100)}</span>` : ''}</span>`;
+}
+
+function renderPanel() {
+  renderBar($('barTop'), flipped ? 'w' : 'b');
+  renderBar($('barBot'), flipped ? 'b' : 'w');
+
+  let st, sub = '';
+  if (over) { st = resultText(over)[0]; sub = over.winner ? `Game over: ${over.reason}.` : `Draw by ${over.reason}.`; }
+  else if (thinking) { st = `${HOUSE[S.turn]} is plotting…`; sub = 'The computer is choosing a move.'; }
+  else {
+    st = G.mode === 'pvc' ? (S.turn === G.side ? 'Your move' : `${HOUSE[S.turn]} to move`) : `${HOUSE[S.turn]} to move`;
+    if (E.inCheck(S)) sub = 'Check! Your king is under attack.';
+    else sub = G.mode === 'pvc' ? `You play ${HOUSE[G.side]} against the ${LEVEL_INFO[G.level].name}.` : 'Two players, one board.';
+  }
+  $('status').innerHTML = `${st}<small>${sub}</small>`;
+  $('undoBtn').disabled = !H.length;
+  $('resignBtn').disabled = !!over;
+
+  const mv = $('moves');
+  if (!H.length) mv.innerHTML = '<li class="empty" style="display:block">No moves yet. The war has not begun.</li>';
+  else {
+    let h = '';
+    for (let k = 0; k < H.length; k += 2) h += `<li><span class="mn">${k / 2 + 1}.</span><span>${H[k].san}</span><span>${H[k + 1] ? H[k + 1].san : ''}</span></li>`;
+    mv.innerHTML = h; mv.scrollTop = mv.scrollHeight;
+  }
+  renderSettings();
+}
+
+function humanHasMoved() {
+  return H.some((h, k) => G.mode === 'pvp' || (k % 2 === 0 ? 'w' : 'b') === G.side);
+}
+
+function renderSettings() {
+  const press = (id, v) => $(id).querySelectorAll('button[data-v]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
+  press('segMode', cfg.mode); press('segSide', cfg.side); press('segLevel', cfg.level);
+  $('themes').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === cfg.theme)));
+  $('settings').classList.toggle('pvp', cfg.mode === 'pvp');
+  const differs = cfg.mode !== G.mode || (cfg.mode === 'pvc' && (cfg.side !== G.side || cfg.level !== G.level));
+  $('pendingNote').hidden = !differs;
+  $('newBtn').classList.toggle('pulse', differs);
+}
+
+function renderStats() {
+  const vs = Object.values(stats.ai).reduce((a, x) => ({ w: a.w + x.w, l: a.l + x.l, d: a.d + x.d }), { w: 0, l: 0, d: 0 });
+  const tot = vs.w + vs.l + vs.d;
+  const tile = (v, l) => `<div class="tile"><b>${v}</b><span>${l}</span></div>`;
+  let h = '<div class="tiles">'
+    + tile(stats.played, 'Games played')
+    + tile(tot ? Math.round(100 * vs.w / tot) + '%' : '–', 'Win rate vs computer')
+    + tile(stats.streak, 'Current win streak')
+    + tile(stats.best, 'Best win streak')
+    + tile(stats.longest || '–', 'Longest game (moves)')
+    + tile(stats.fastestMate || '–', 'Fastest checkmate (moves)')
+    + '</div>';
+  h += '<p class="sub">Against the computer</p><table><thead><tr><th>Difficulty</th><th>Won</th><th>Lost</th><th>Drawn</th></tr></thead><tbody>';
+  for (const k in LEVEL_INFO) { const x = stats.ai[k]; h += `<tr><td>${LEVEL_INFO[k].name}</td><td>${x.w}</td><td>${x.l}</td><td>${x.d}</td></tr>`; }
+  h += '</tbody></table>';
+  h += `<p class="sub">Person vs person</p><table><thead><tr><th>Result</th><th>Games</th></tr></thead><tbody>
+    <tr><td>Targaryen wins</td><td>${stats.pvp.w}</td></tr><tr><td>Lannister wins</td><td>${stats.pvp.b}</td></tr><tr><td>Draws</td><td>${stats.pvp.d}</td></tr></tbody></table>`;
+  h += '<p class="sub">Recent games</p>';
+  if (!stats.recent.length) h += '<p class="empty" style="margin-bottom:12px">Finished games will appear here.</p>';
+  else h += '<ul class="recent">' + stats.recent.map(g => `<li><span>${new Date(g.date).toLocaleDateString()} · ${g.mode}</span><span class="r-${g.cls}">${g.label} · ${g.moves}m</span></li>`).join('') + '</ul>';
+  $('stats').innerHTML = h;
+}
+
+function render() { renderBoard(); renderPanel(); renderStats(); }
+
+function applyTheme() {
+  const t = THEMES[cfg.theme], st = document.documentElement.style;
+  for (const k of ['light', 'dark', 'p1', 'p1i', 'p2', 'p2i', 'acc', 'bg']) st.setProperty('--' + k, t[k]);
+}
+
+/* ------------------------------------------------------------------ */
+/* Board input: click-to-move and drag-and-drop */
+let drag = null;
+boardEl.addEventListener('pointerdown', e => {
+  if (e.button !== 0) return;
+  const sqEl = e.target.closest('.sq'); if (!sqEl) return;
+  const i = +sqEl.dataset.i;
+  if (!humanCanMove()) return;
+  if (sel !== null && targets.some(m => m.to === i)) { tryMove(sel, i); return; }
+  const p = S.b[i];
+  if (p && E.col(p) === S.turn) {
+    const wasSel = sel === i;
+    select(i);
+    drag = { i, x: e.clientX, y: e.clientY, size: sqEl.getBoundingClientRect().width, ghost: null, id: e.pointerId, wasSel };
+    boardEl.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  } else if (sel !== null) { sel = null; targets = []; renderBoard(); }
+});
+boardEl.addEventListener('pointermove', e => {
+  if (!drag) return;
+  if (!drag.ghost) {
+    if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 6) return;
+    drag.ghost = document.createElement('div');
+    drag.ghost.className = 'ghost';
+    drag.ghost.style.width = drag.ghost.style.height = drag.size + 'px';
+    drag.ghost.innerHTML = pieceSVG(S.b[drag.i]);
+    document.body.appendChild(drag.ghost);
+    const o = boardEl.querySelector(`.sq[data-i="${drag.i}"]`); if (o) o.classList.add('dragging');
+  }
+  drag.ghost.style.transform = `translate(${e.clientX - drag.size / 2}px, ${e.clientY - drag.size / 2}px)`;
+});
+function endDrag(e, cancel) {
+  if (!drag) return;
+  const d = drag; drag = null;
+  try { boardEl.releasePointerCapture(d.id); } catch {}
+  if (d.ghost) {
+    d.ghost.remove();
+    const el = cancel ? null : document.elementFromPoint(e.clientX, e.clientY);
+    const t = el && el.closest('.sq');
+    if (t && targets.some(m => m.to === +t.dataset.i)) tryMove(d.i, +t.dataset.i);
+    else renderBoard();
+  } else if (d.wasSel) { sel = null; targets = []; renderBoard(); }
+}
+boardEl.addEventListener('pointerup', e => endDrag(e, false));
+boardEl.addEventListener('pointercancel', e => endDrag(e, true));
+
+/* ------------------------------------------------------------------ */
+/* Controls */
+$('segLevel').innerHTML = Object.entries(LEVEL_INFO).map(([k, v]) => `<button data-v="${k}"><b>${v.name}</b><small>${v.desc}</small></button>`).join('');
+$('themes').innerHTML = Object.entries(THEMES).map(([k, t]) => `<button data-v="${k}"><span class="sw"><i style="background:${t.p1}"></i><i style="background:${t.p2}"></i></span>${t.name}</button>`).join('');
+
+function settingChanged() {
+  saveCfg();
+  // Before the human has moved, a new mode or difficulty takes effect immediately
+  if (!over && !humanHasMoved()) { newGame(); return; }
+  renderPanel();
+}
+for (const [id, key] of [['segMode', 'mode'], ['segSide', 'side'], ['segLevel', 'level']]) {
+  $(id).addEventListener('click', e => {
+    const b = e.target.closest('button[data-v]'); if (!b || cfg[key] === b.dataset.v) return;
+    cfg[key] = b.dataset.v; settingChanged();
+  });
+}
+$('themes').addEventListener('click', e => {
+  const b = e.target.closest('button[data-v]'); if (!b) return;
+  cfg.theme = b.dataset.v; saveCfg(); applyTheme(); render();
+});
+$('hints').checked = cfg.hints;
+document.body.classList.toggle('no-hints', !cfg.hints);
+$('hints').addEventListener('change', e => { cfg.hints = e.target.checked; saveCfg(); document.body.classList.toggle('no-hints', !cfg.hints); });
+
+$('newBtn').addEventListener('click', newGame);
+$('resNew').addEventListener('click', newGame);
+$('resClose').addEventListener('click', () => { $('result').hidden = true; });
+$('undoBtn').addEventListener('click', undo);
+$('flipBtn').addEventListener('click', () => { flipped = !flipped; render(); });
+$('resignBtn').addEventListener('click', resign);
+
+let resetArmed = null;
+$('resetStats').addEventListener('click', e => {
+  if (!resetArmed) {
+    e.target.textContent = 'Click again to confirm';
+    resetArmed = setTimeout(() => { resetArmed = null; e.target.textContent = 'Reset statistics'; }, 3000);
+    return;
+  }
+  clearTimeout(resetArmed); resetArmed = null; e.target.textContent = 'Reset statistics';
+  stats = blankStats(); store.set('throneChess.stats', stats); renderStats();
+});
+
+function renderSound() {
+  $('musicBtn').textContent = cfg.music ? '♪ Music on' : '♪ Music off';
+  $('musicBtn').setAttribute('aria-pressed', String(cfg.music));
+  $('sfxBtn').textContent = cfg.sfx ? 'Sound effects on' : 'Sound effects off';
+  $('sfxBtn').setAttribute('aria-pressed', String(cfg.sfx));
+  $('vol').value = Math.round(cfg.vol * 100);
+}
+$('musicBtn').addEventListener('click', () => { cfg.music = !cfg.music; saveCfg(); cfg.music ? Music.start() : Music.stop(); renderSound(); });
+$('sfxBtn').addEventListener('click', () => { cfg.sfx = !cfg.sfx; saveCfg(); renderSound(); });
+$('vol').addEventListener('input', e => { cfg.vol = e.target.value / 100; Music.setVol(cfg.vol); saveCfg(); });
+// Browsers only allow audio after a user gesture, so the music starts on the first click or key press
+const firstGesture = () => { if (cfg.music) Music.start(); window.removeEventListener('pointerdown', firstGesture); window.removeEventListener('keydown', firstGesture); };
+window.addEventListener('pointerdown', firstGesture);
+window.addEventListener('keydown', firstGesture);
+
+// The cast
+$('roster').innerHTML = ['w', 'b'].map(side => `<div><h4>${HOUSE[side]}</h4>` + ['k', 'q', 'r', 'b', 'n', 'p'].map(t => {
+  const p = side === 'w' ? t.toUpperCase() : t;
+  return `<div class="rost" style="margin-top:8px">${pieceSVG(p)}<span>${CHAR[side][t]}<small>${ROLE[t]}</small></span></div>`;
+}).join('') + '</div>').join('');
+
+applyTheme();
+renderSound();
+newGame();
+</script>
+</body>
+</html>
