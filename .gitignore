@@ -1,0 +1,10 @@
+# Personal files that don't belong in the project
+*.ics
+
+# Local Claude Code settings
+.claude/settings.local.json
+
+# OS clutter
+Thumbs.db
+Desktop.ini
+.DS_Store
