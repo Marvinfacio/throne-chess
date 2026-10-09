@@ -10,11 +10,25 @@ Single-file browser games. There's no build step, package manager or dependencie
 - `tic-tac-toe.html`: a standalone tic-tac-toe game.
 - `index.html`: a meta-refresh redirect to `got-chess.html`, so the GitHub Pages root opens the chess game.
 
-## Git and deployment workflow
+## Always commit and push your work
+
+The user wants to never lose work, and to be able to go back to any earlier version. Treat Git as part of every task, not an optional last step:
+
+- **Commit as you go.** Make a commit each time you finish a logical, working piece of work, such as a feature, a fix or a docs change. Don't save everything for one big commit at the end, and don't mix unrelated changes in one commit.
+- **Push right after each commit** (`git push`), so GitHub always has the latest state. Never end a task with uncommitted or unpushed changes. Run `git status -sb` and check that it shows `## main...origin/main` with nothing ahead.
+- **Write clean commit messages.**
+  - The first line is a short, imperative summary of about 60 characters or fewer, e.g. "Add castling sound effect" or "Fix en passant capture on the a-file".
+  - If the reason isn't obvious, add a blank line and then a short body explaining what changed and why.
+  - End with the co-author attribution line.
+- **Test before you push.** Pushing to `main` deploys the live game, so verify the change first (see Running and testing).
+- This is a standing instruction. You don't need to ask before committing or pushing in this repo. Destructive history changes still need explicit permission: force-push, `reset --hard` on pushed commits, or rewriting history.
+
+## Git and deployment details
 
 - Remote: public repo `Marvinfacio/throne-chess`, branch `main`.
-- **GitHub Pages serves `main`.** Every push updates the live game at https://marvinfacio.github.io/throne-chess/ about a minute later. Don't push anything broken.
-- The user wants every change committed with a clean message and pushed.
+- **GitHub Pages serves `main`.** Every push updates the live game at https://marvinfacio.github.io/throne-chess/ about a minute later.
+- To go back to an earlier version, prefer `git revert <commit>`, which adds a new commit and keeps the history intact.
+- In PowerShell, `git ls-remote` can hang on a credential prompt. Use `git status -sb` to check whether you're in sync with GitHub.
 - Commit identity is set in the repo config: Marvinfacio, with the GitHub no-reply email. Don't change it.
 - `.gitignore` excludes `*.ics` (a personal file in the working folder) and `.claude/settings.local.json`. Never force-add them.
 - Git prints LF→CRLF warnings on Windows. They're harmless.
